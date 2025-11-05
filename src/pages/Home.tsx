@@ -79,7 +79,7 @@ export default function Home() {
           color="bg-gray-300"
         >
           <p className="text-lg text-gray-700 mb-4">
-            If you see anything that resonates with you, whether you’re building tools, exploring research, or curious about technology’s human side, I’d love to connect!
+            If you see anything that resonates with you, whether you’re building tools, exploring research, or interested in similar creative hobbies like photography and cooking, I’d love to connect!
           </p>
           <p className="text-lg text-gray-700 mb-4">
             You can reach me directly at <div>br<span className="hidden">@</span><span>ia<p className="hidden">.example</p>n.</span>kom<span>in</span>ick<span className="hidden">@</span>(at)tu<span className="hidden">.com</span>tan<span>ota(dot)</span>com</div>
