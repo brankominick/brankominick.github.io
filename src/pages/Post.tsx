@@ -1,7 +1,5 @@
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import matter from "gray-matter";
 
 interface PostData {
   title: string;
@@ -16,42 +14,50 @@ export default function Post() {
   useEffect(() => {
     if (!slug) return;
 
-    // In Vite, use import.meta.env.BASE_URL instead of process.env.PUBLIC_URL
-    const postUrl = `${import.meta.env.BASE_URL}posts/${slug}.md`;
+    const postUrl = `${window.location.origin}/posts/${slug}.html`;
 
     fetch(postUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error("Post not found");
-        return res.text();
-      })
-      .then((text) => {
-        const { data, content } = matter(text);
-        setPost({
-          title: data.title || slug,
-          date: data.date || "",
-          content,
-        });
-      })
-      .catch(() => {
-        setPost({
-          title: "Not found",
-          date: "",
-          content: "This post does not exist or failed to load.",
-        });
+    .then((res) => {
+      console.log(res.status);
+      return res.text();
+    })
+    .then((text) => {
+      const doc = new DOMParser().parseFromString(text, "text/html");
+
+      const metaTag = doc.getElementById("post-meta");
+      const meta = metaTag ? JSON.parse(metaTag.textContent || "{}") : {};
+
+      const content = doc.querySelector(".post-content")?.innerHTML || "";
+      setPost({
+        title: meta.title,
+        date: meta.date,
+        content: content,
       });
+    })
+    .catch((err) => {
+      console.error("Error loading post:", err);
+      setPost({
+        title: "Not found",
+        date: "",
+        content: "This post does not exist or failed to load.",
+      });
+    });
   }, [slug]);
 
   if (!post) return <p className="p-6">Loading...</p>;
 
   return (
-    <div className="p-6 prose max-w-none">
+    <div className="pt-16">
       <h1>{post.title}</h1>
       {post.date && (
         <p>
           <small>{post.date}</small>
         </p>
       )}
-      <ReactMarkdown>{post.content}</ReactMarkdown>
+      <div
+        className="pt-16 p-6"
+        dangerouslySetInnerHTML={{ __html: post.content }}
+      />
     </div>
   );
 }

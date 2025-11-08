@@ -9,7 +9,7 @@
     "baseUrl": "./src", // Sets the base URL for module resolution to the 'src' directory
     "paths": {
       "@/*": ["./*"], 
-      "@components": ["./components/*"],
+      "@components/*": ["./components/*"],
       "@root/*": ["./../*"],
       "@public/*": ["./../public/*"]
     },
@@ -28,7 +28,7 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src"
+    "src/*"
   ]
 }
 

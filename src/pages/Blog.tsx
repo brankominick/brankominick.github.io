@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import Container from "@components/Container";
+import Card from "@components/Card";
 
 interface PostMeta {
   slug: string;
   title: string;
+  excerpt: string;
   date: string;
+  img?: string;
 }
 
 export default function Blog() {
@@ -27,17 +29,26 @@ export default function Blog() {
           color="bg-blue-300"
         >
           <p>
-            Coming soon!
+            Currently working on formatting for posts.
           </p>
         </Container>
       </section>
-      <ul>
-        {posts.map(p => (
-          <li key={p.slug}>
-            <Link to={`/blog/${p.slug}`}>{p.title}</Link> <small>({p.date})</small>
-          </li>
-        ))}
-      </ul>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 p-6">
+        {posts.length === 0 ? (
+          <p className="text-center text-gray-500">No posts yet.</p>
+        ) : (
+          posts.map((p) => (
+            <Card
+              key={p.slug}
+              title={p.title}
+              excerpt={p.excerpt}
+              path="blog"
+              slug={p.slug}
+              img={p.img || "logo512.png"}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
