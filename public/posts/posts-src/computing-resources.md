@@ -1,7 +1,7 @@
 ---
 title: Resource Efficiency and AI 
 date: 2025-09-20
-img: images/other/blogs/computing-resources/liquid-cooling.jpg
+img: /assets/images/computing-resources/liquid-cooling.jpg
 excerpt: Estimates for AI's global electricity usage in 2027 range from 85–134TWh. The bottom of that range is 5 times more energy than all of Philadelphia county consumed in 2024.
 ---
 
@@ -11,7 +11,7 @@ If you follow discourse around artificial intelligence and LLMs (large language 
 ### Water Usage
 Often overlooked, water plays a crucial role in facilitating cloud infrastructure and thus our modern AI applications. Projections for the global water withdrawal for AI usage in 2027 range from 4.2–6.6 billion cubic meters, about half the water withdrawal of the U.K. 0.38–0.60 billion cubic meters of that water will be evaporated or consumed. To contextualize this measurement for a WCU student, the lower end of that range is greater than total amount of drinking water distributed in Philadelphia for a year[^1][^2]. Furthermore, aggressive projections for AI water withdrawal in the U.S. alone for the year 2028 exceed the 2027 global estimates[^1][^3].
 
-![GPT-3 Water Consumption Footprint]({{'/images/other/blogs/computing-resources/gpt3WaterFootprint.png' | relative_url}} "GPT-3 Water Consumption Footprint")[^1]
+![GPT-3 Water Consumption Footprint](/assets/images/computing-resources/gpt3WaterFootprint.png "GPT-3 Water Consumption Footprint")[^1]
 Estimate of GPT-3's average operational water consumption footprint. '*' denotes data centers under construction as of July 2023. PUE/WUE denotes Power/Water Usage Effectiveness. EWIF denotes Electricity Water Intensity Factor.
 
 ### Energy Usage
@@ -27,7 +27,7 @@ This underutilization draws attention to a more systemic issue: In modern proces
 ### Memory Organization
 To better understand how memory management factors into performance, let's start by taking a look at how a computer organizes data. We can divide memory into two different categories: primary (internal, volatile) and secondary (external, non-volatile). The diagram below shows the different tiers of available memory, ordered by size and access time. Registers, caches, and main memory (dynamic random-access memory) fall under the primary category. They store programs and data for the processes your computer is currently running (like this webpage!) and are directly accessible to the processor. On the other hand, things like HDDs (hard drive disks) and SSDs (solid-state drives) constitute secondary memory. They are used for long-term storage, retain data even when unpowered, and are indirectly accessible to the processor through input/output operations. As you can see in the diagram, access time for secondary storage jumps to the scale of milliseconds, whereas primary storage can be accessed in nanoseconds. Importantly, it also indicates the direction of cost per bit, a monetary measurement (primary storage is more complex to physically produce). Taking these attributes into consideration, we can see that efficient design necessitates a balance between the two categories.
 
-![Memory Hierarchy Diagram]({{'/images/other/blogs/computing-resources/Memory-Hierarchy-Design.png' | relative_url}} "Memory Hierarchy Diagram")[^8]
+![Memory Hierarchy Diagram](/assets/images/computing-resources/Memory-Hierarchy-Design.png "Memory Hierarchy Diagram")[^8]
 
 ## Mitigating Resource Consumption
 So far, we've identified a couple key factors contributing to water and energy usage in AI, namely the at-scale infrastructure supporting data centers and the underutilization of compute units in current hardware. Researchers are handling these inefficiencies at multiple levels of the technology stack. Let's look at some examples at each level.

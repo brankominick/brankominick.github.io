@@ -1,11 +1,5 @@
 [
   {
-    "slug": "hello-post",
-    "title": "Hello World",
-    "excerpt": "This is my excerpt!",
-    "date": "2025-10-16T00:00:00.000Z"
-  },
-  {
     "slug": "memory-optimizations",
     "title": "Memory Optimization Demo",
     "excerpt": "In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)",
