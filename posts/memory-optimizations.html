@@ -7,7 +7,7 @@
     </head>
     <body>
         <script id="post-meta" type="application/json">
-        {"title":"Memory Optimization Demo","date":"2025-10-01T00:00:00.000Z","img":"images/other/blogs/computing-resources/before.png","excerpt":"In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)"}
+        {"title":"Memory Optimization Demo","date":"2025-10-01T00:00:00.000Z","img":"assets/images/computing-resources/before.png","excerpt":"In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)","scripts":["assets/d3/checkpoint-plot.js"]}
         </script>
         <div class="post-content">
         <h2>Introduction</h2>
@@ -79,9 +79,9 @@ struct FusedOp : Node {
 };
 </code></pre>
 <p>If we parse this expression into a DAG using our minimal IR, we could represent it like this:</p>
-<p>![Before Fusion]({{&#39;/images/other/blogs/computing-resources/before.png&#39; | relative_url}} &quot;Before Fusion&quot;)</p>
+<p><img src="/assets/images/computing-resources/before.png" alt="Before Fusion" title="Before Fusion"></p>
 <p>From here, we can see the relationships between each term and apply a function to recursively traverse the tree. That could transform the original graph into the following:</p>
-<p>![After Fusion]({{&#39;/images/other/blogs/computing-resources/after.png&#39; | relative_url}} &quot;After Fusion&quot;)</p>
+<p><img src="/assets/images/computing-resources/after.png" alt="After Fusion" title="After Fusion"></p>
 <p> Implementing this practice in a compiler removes the need to manually apply it to all operations and allows for further optimizations at a smaller level.</p>
 <p>The complete code for this implementation can be found <a href="https://github.com/brankominick/fusion-demo">here</a>. </p>
 <h3>Gradient Checkpointing</h3>
@@ -127,7 +127,8 @@ K,Memory_MB,Time_s
 10000,1.53,6.05
 50000,0.31,6.03
 </code></pre>
-<p>{% include checkpoint-plot.html %}</p>
+<div id="chart"></div>
+
 <p>As we can see, adding checkpoints dramatically reduces not only the amount of memory used but also the total run time. However, the checkpoints have diminishing returns. As they become more frequent (as K decreases), the memory usage and execution time both increase. If we continue to decrease checkpoints (increase K), we would see slight increases to execution time in that direction as well.</p>
 <p>The complete code for this implementation can be found <a href="https://github.com/brankominick/gradient-checkpointing-demo">here</a>.</p>
 <h2>Conclusion</h2>

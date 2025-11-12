@@ -1,8 +1,10 @@
 ---
 title: Memory Optimization Demo
 date: 2025-10-01
-img: 'images/other/blogs/computing-resources/before.png'
+img: 'assets/images/computing-resources/before.png'
 excerpt: In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)
+scripts:
+    - 'assets/d3/checkpoint-plot.js'
 ---
 
 ## Introduction
@@ -95,11 +97,11 @@ struct FusedOp : Node {
 
 If we parse this expression into a DAG using our minimal IR, we could represent it like this:
 
-![Before Fusion]({{'/images/other/blogs/computing-resources/before.png' | relative_url}} "Before Fusion")
+![Before Fusion](/assets/images/computing-resources/before.png "Before Fusion")
 
 From here, we can see the relationships between each term and apply a function to recursively traverse the tree. That could transform the original graph into the following:
 
-![After Fusion]({{'/images/other/blogs/computing-resources/after.png' | relative_url}} "After Fusion")
+![After Fusion](/assets/images/computing-resources/after.png "After Fusion")
 
  Implementing this practice in a compiler removes the need to manually apply it to all operations and allows for further optimizations at a smaller level.
 
@@ -157,7 +159,7 @@ K,Memory_MB,Time_s
 50000,0.31,6.03
 ```
 
-{% include checkpoint-plot.html %}
+<div id="chart"></div>
 
 As we can see, adding checkpoints dramatically reduces not only the amount of memory used but also the total run time. However, the checkpoints have diminishing returns. As they become more frequent (as K decreases), the memory usage and execution time both increase. If we continue to decrease checkpoints (increase K), we would see slight increases to execution time in that direction as well.
 
