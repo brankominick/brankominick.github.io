@@ -1,11 +1,13 @@
----
-title: Memory Optimization Demo
-date: 2025-10-01
-img: 'assets/images/computing-resources/before.png'
-excerpt: In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)
-scripts:
-    - 'assets/d3/checkpoint-plot.js'
----
+import GradientCheckpointChart from "../components/GradientCheckpointChart";
+
+export const metadata = {
+    title: "Memory Optimization Demo",
+    date: "2025-10-01",
+    img: "assets/images/computing-resources/before.png",
+    excerpt: "In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)"
+}
+
+# Memory Optimization Demo
 
 ## Introduction
 In my last blog post ("Computing Resources Blog"), we looked at some past and projected figures for AI's natural-resource consumption and showed the expenditure to be immense. Following that, we gave a high-level view of current or proposed methods to mitigate those figures. In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing) and implement some simple demos to deepen our understanding of how they work. Following that, I'll give a brief reflection on what I've gained from writing this post and what I plan to do next.
@@ -159,7 +161,7 @@ K,Memory_MB,Time_s
 50000,0.31,6.03
 ```
 
-<div id="chart"></div>
+<GradientCheckpointChart/>
 
 As we can see, adding checkpoints dramatically reduces not only the amount of memory used but also the total run time. However, the checkpoints have diminishing returns. As they become more frequent (as K decreases), the memory usage and execution time both increase. If we continue to decrease checkpoints (increase K), we would see slight increases to execution time in that direction as well.
 
@@ -173,6 +175,6 @@ As noted in the conclusion, the strategies covered in this post have their limit
 
 # References and Links
 
-[^1]: Makin, Yashasvi, and Rahul Maliakkal. “Sustainable AI Training via Hardware–Software Co-Design on NVIDIA, AMD, and Emerging GPU Architectures.” *arXiv*, preprint arXiv:2508.13163, 28 July 2025, https://arxiv.org/abs/2508.13163.
-[^2]: Chris Lattner, Mehdi Amini, Uday Bondhugula, Albert Cohen, Andy Davis, Jacques Pienaar, River Riddle, Tatiana Shpeisman, Nicolas Vasilache, and Oleksandr Zinenko. “MLIR: Scaling compiler infrastructure for domain specific computation.” In 2021 IEEE/ACM International Symposium on Code Generation and Optimization (CGO), pp. 2-14. IEEE, 2021.
-[^3]: Paszke, Adam, et al. Automatic Differentiation in PyTorch. 2017, OpenReview, https://openreview.net/pdf?id=BJJsrmfCZ
+[^1]: Makin, Yashasvi, and Rahul Maliakkal. “Sustainable AI Training via Hardware–Software Co-Design on NVIDIA, AMD, and Emerging GPU Architectures.” *arXiv*, preprint arXiv:2508.13163, 28 July 2025, https://arxiv.org/abs/2508.13163.  
+[^2]: Chris Lattner, Mehdi Amini, Uday Bondhugula, Albert Cohen, Andy Davis, Jacques Pienaar, River Riddle, Tatiana Shpeisman, Nicolas Vasilache, and Oleksandr Zinenko. “MLIR: Scaling compiler infrastructure for domain specific computation.” In 2021 IEEE/ACM International Symposium on Code Generation and Optimization (CGO), pp. 2-14. IEEE, 2021.  
+[^3]: Paszke, Adam, et al. Automatic Differentiation in PyTorch. 2017, OpenReview, https://openreview.net/pdf?id=BJJsrmfCZ. 
