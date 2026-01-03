@@ -1,0 +1,653 @@
+---
+    title: "Memory Optimization Demo"
+    date: 2025-10-01
+    img: "assets/images/computing-resources/before.png"
+    excerpt: "In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing)"
+---
+
+import GradientCheckpointChart from "../../components/GradientCheckpointChart";
+
+# Memory Optimization Demo
+
+## Introduction
+In my last blog post ("Computing Resources Blog"), we looked at some past and projected figures for AI's natural-resource consumption and showed the expenditure to be immense. Following that, we gave a high-level view of current or proposed methods to mitigate those figures. In this blog post, we'll inspect a couple current software-level optimizations (kernel fusion and gradient checkpointing) and implement some simple demos to deepen our understanding of how they work. Following that, I'll give a brief reflection on what I've gained from writing this post and what I plan to do next.
+
+## Background
+To pragmatically address the bottleneck of input/output operations, let's look at a couple specific ways we can better utilize the computing resources we have available: kernel fusion and gradient checkpointing[^1]. Before getting into their implementations, we'll review each one conceptually.
+
+### Kernel Fusion
+Since i/o operations to secondary memory are more computationally expensive, kernel fusion aims to reduce them by maximizing the potential of our primary memory. Before going any further, we should clarify what a kernel is. We can think of it as a function that is carried out by number of threads in parallel on a GPU. Somewhat analogous to combining multiple subprocesses on a CPU, this technique combines multiple operations into a single environment or context, instead of executing them sequentially and reading/writing temporary values to secondary memory after each one, since they do not share primary memory. Additionally, just as spawning subprocess involves overhead components, so too does a kernel, meaning fusion reduces these costs as well.
+
+### Gradient Checkpointing
+Since bottlenecks are often caused by memory operations and leave computational units idle, we can use the gradient checkpointing strategy to reduce the amount of memory we use in return for increasing the amount of computations being done. In other words, instead of recording all of the data you need, record only a subset (checkpoints) and use it to redo the rest of the calculations as needed. It's like the reverse of memoization, in which a program avoids recomputing values by saving them for reuse. 
+
+## Demos
+
+### User-Driven Kernel Fusion
+To simplify this process, consider the following conceptual example:
+
+$$(5 + 3) * 10$$
+
+To evaluate this expression, we could do the following
+
+```python
+def add_and_multiply(a, b, c):
+    temp = a + b
+    return temp * c
+print(add_and_multiply(5, 3, 10))
+```
+
+In this example, we create a temporary variable to represent the intermediary result. Instead of allocating this memory to add and multiply separately, we can combine them into a single operation, removing the need to allocate memory and read/write to it.
+
+```python
+def add_and_multiply(a, b, c):
+    return (a + b) * c
+print(add_and_multiply(5, 3, 10))
+```
+
+Comparing these two functions is a very simple way of illustrating what happens when kernels are fused in machine-learning tasks. While this example is small, the classic example for kernel fusion involves linear algebra and sequential matrix operations. Data for these operations can measure in gigabytes and utilize secondary memory.
+
+#### Compiler-Driven Kernel Fusion
+While a developer can manually combine operations, this strategy is largely applied at a compiler level. Instead of applying optimizations directly to source code, IRs (intermediate representations) enable the transformation of high-level languages into a lower, hardware-agnostic form, while still retaining important semantic information from the original form. MLIR (Multi-Level Intermediate Representation) is a specific form or framework which makes use of fusion and is widely used for machine learning. Like the name suggests, MLIR allows code to be represented at varying levels of abstraction, each conducive to different optimizations[^2].
+
+Using MLIR, compilers can view code as a DAG (directed acyclic graph) which shows data dependencies within the program. With nodes in the graph representing operators, it reveals the flow of data from one operator to the next. When an operator immediately consumes the output from the one preceding it, it could be advantageous to fuse the operations rather than storing and subsequently collecting the data. Let's take a look at a simple arithmetic example. Consider the expression:
+
+$$a + b * c + 1$$
+
+To keep things more accessible, let's implement our own tiny IR just for this example. The signatures could look like this:
+
+```cpp
+struct Node {
+    inline static int counter = 0;
+    int id;
+    Node() : id(counter++) {}
+    virtual ~Node() = default;
+};
+
+struct VarA : Node {
+    VarA();
+};
+
+struct VarB : Node {
+    VarB();
+};
+
+struct VarC : Node {
+    VarC();
+};
+
+struct Const : Node {
+    double value;
+    Const(double v);
+};
+
+struct Add : Node {
+    std::shared_ptr<Node> lhs, rhs;
+    Add(std::shared_ptr<Node> l, std::shared_ptr<Node> r);
+};
+
+struct Mult : Node {
+    std::shared_ptr<Node> lhs, rhs;
+    Mult(std::shared_ptr<Node> l, std::shared_ptr<Node> r);
+};
+
+struct FusedOp : Node {
+    std::vector<std::shared_ptr<Node>> inputs;
+    explicit FusedOp(std::vector<std::shared_ptr<Node>> in);
+};
+```
+
+If we parse this expression into a DAG using our minimal IR, we could represent it like this:
+
+![Before Fusion](/assets/images/computing-resources/before.png "Before Fusion")
+
+From here, we can see the relationships between each term and apply a function to recursively traverse the tree. That could transform the original graph into the following:
+
+![After Fusion](/assets/images/computing-resources/after.png "After Fusion")
+
+ Implementing this practice in a compiler removes the need to manually apply it to all operations and allows for further optimizations at a smaller level.
+
+The complete code for this implementation can be found [here](https://github.com/brankominick/fusion-demo). 
+
+### Gradient Checkpointing
+Unlike kernel fusion, this method is more limited in its use cases but very applicable to the backwards passes in machine learning and AI training. Because it's more specific to AI training, it can be found implemented at the framework level like in PyTorch[^3].
+
+In order to do a short demonstration without abstracting away the logic, let's put together a simple implementation and take some benchmarks. To account for storage, we compare saving each intermediate value with saving only some:
+
+```cpp
+double compute_with_storage(double x, int depth) {
+    std::vector<double> intermediates(depth + 1);
+    intermediates[0] = x;
+    for (int i = 1; i <= depth; i++) {
+        intermediates[i] = intermediates[i - 1] * intermediates[i - 1] + 1.0;
+    }
+    std::cout << "  Storage used: "
+              << std::fixed << std::setprecision(2)
+              << memory_in_mb(intermediates.size())
+              << " MB\n";
+    return intermediates[depth];
+}
+```
+
+To cut down on intermediates, instead of recording each one, we can update a variable and only record the checkpoints:
+```cpp
+int i = 0;
+    while (i < depth) {
+        double val = checkpoints.back();
+
+        int steps = std::min(checkpoint_interval, depth - i);
+        for (int j = 0; j < steps; j++) {
+            val = val * val + 1.0;
+        }
+        checkpoints.push_back(val);
+        i += steps;
+    }
+```
+
+With an x value of 1.001 and a ridiculous depth of 2 billion, we get the following results:
+
+```bash
+Storage used: 15258.79 MB
+Execution time with storage: 28.81s
+
+K,Memory_MB,Time_s
+10,1525.88,7.10
+50,305.18,6.24
+100,152.59,6.11
+500,30.52,6.09
+1000,15.26,6.10
+5000,3.05,6.07
+10000,1.53,6.05
+50000,0.31,6.03
+```
+
+<GradientCheckpointChart client:load />
+
+As we can see, adding checkpoints dramatically reduces not only the amount of memory used but also the total run time. However, the checkpoints have diminishing returns. As they become more frequent (as K decreases), the memory usage and execution time both increase. If we continue to decrease checkpoints (increase K), we would see slight increases to execution time in that direction as well.
+
+The complete code for this implementation can be found [here](https://github.com/brankominick/gradient-checkpointing-demo).
+
+## Conclusion
+In this post, we deepened our understanding of kernel fusion and gradient checkpointing by implementing and visualizing them with simple demos. While each of these strategies brings its own optimizations, they also come with their own limitations, requiring careful consideration in how they're implemented. Additionally, it's important to remember that savings will compound when these techniques and others are applied in conjunction, resulting in higher utilization of compute units and thus, less wasted energy.
+
+## Reflection and Future Direction
+As noted in the conclusion, the strategies covered in this post have their limitations. Future work could include examining these bounds such as the payoff for fusion with complex kernels or how preferring primary memory may limit high-precision values. We could also explore other software-level optimization methods. Additionally, we could go in a more concrete direction and extend current frameworks like MLIR to execute and benchmark its current capabilities. Follow along to see what comes next!
+
+# References and Links
+
+[^1]: Makin, Yashasvi, and Rahul Maliakkal. “Sustainable AI Training via Hardware–Software Co-Design on NVIDIA, AMD, and Emerging GPU Architectures.” *arXiv*, preprint arXiv:2508.13163, 28 July 2025, https://arxiv.org/abs/2508.13163.  
+[^2]: Chris Lattner, Mehdi Amini, Uday Bondhugula, Albert Cohen, Andy Davis, Jacques Pienaar, River Riddle, Tatiana Shpeisman, Nicolas Vasilache, and Oleksandr Zinenko. “MLIR: Scaling compiler infrastructure for domain specific computation.” In 2021 IEEE/ACM International Symposium on Code Generation and Optimization (CGO), pp. 2-14. IEEE, 2021.  
+[^3]: Paszke, Adam, et al. Automatic Differentiation in PyTorch. 2017, OpenReview, https://openreview.net/pdf?id=BJJsrmfCZ. ---
+    title: "Resource Efficiency and AI"
+    date: 2025-09-20
+    img: "/assets/images/computing-resources/liquid-cooling.jpg"
+    excerpt: "Estimates for AI's global electricity usage in 2027 range from 85–134TWh. The bottom of that range is 5 times more energy than all of Philadelphia county consumed in 2024."
+---
+
+# Resource Efficiency and AI
+
+## Introduction
+If you follow discourse around artificial intelligence and LLMs (large language models), chances are, you've heard claims about their enormous resource demands (If you haven't, see below!). Let's take a close look at some of those claims and how we can address worries surrounding resource consumption. Since a wide variety of factors come together to create and power LLMs, we'll limit the scope of this post to two big categories: energy and water. After some background on these inputs, we'll explore possible avenues for reducing consumption. 
+
+### Water Usage
+Often overlooked, water plays a crucial role in facilitating cloud infrastructure and thus our modern AI applications. Projections for the global water withdrawal for AI usage in 2027 range from 4.2–6.6 billion cubic meters, about half the water withdrawal of the U.K. 0.38–0.60 billion cubic meters of that water will be evaporated or consumed. To contextualize this measurement for a WCU student, the lower end of that range is greater than total amount of drinking water distributed in Philadelphia for a year[^1][^2]. Furthermore, aggressive projections for AI water withdrawal in the U.S. alone for the year 2028 exceed the 2027 global estimates[^1][^3].
+
+![GPT-3 Water Consumption Footprint](/assets/images/computing-resources/gpt3WaterFootprint.png "GPT-3 Water Consumption Footprint")[^1]
+Estimate of GPT-3's average operational water consumption footprint. '*' denotes data centers under construction as of July 2023. PUE/WUE denotes Power/Water Usage Effectiveness. EWIF denotes Electricity Water Intensity Factor.
+
+### Energy Usage
+Water and energy usage are deeply interconnected, so we'll turn to that next. To best understand the relation between the two, let's look at the electricity projections for the same years. Estimates for AI's global electricity usage in 2027 range from 85–134TWh[^1]. To provide another local comparison, the bottom of that range is 5 times more energy than all of Philadelphia county consumed in 2024[^4]. The same study used to forecast the 2028 U.S. water withdrawal figure places the country's AI electricity consumption for the year at a range of 150–300TWh[^1][^3]. To narrow the context and provide insight into a particular operation, the GPUs that trained GPT-3 used rivaled the monthly consumption of about 1,450 U.S. homes[^5]. Regardless of whether you focus on the lower or upper bound of estimations, these figures underscore the colossal scale of what goes on behind the scenes of some of today's most well known apps. In order to understand how things can be improved, let's identify some of the biggest contributing factors.
+
+## Background
+We've seen now how resource-intensive the modern AI ecosystem can be, but where does all the water and energy go? Considering the massive scale of AI applications, we can start at a high level and identify shortcomings with system-level infrastructure (data centers). Referring back to the chart under the "Water Usage" section, we can identify the U.S. data centers with the highest "WUE," indicating low efficiency in on-site (cooling) water usage. When sorted by this attribute, the three least efficient data centers are the ones in Arizona (2.240), Texas (1.820), and Washington (1.090). With this grouping, it's clear that data centers in hot, arid places require more water for cooling. This geographical placement may seem slightly perplexing; of course hotter areas are harder to cool! There are, however, other considerations when constructing new data centers. Aside from on-site water usage (and business incentives), power infrastructure also plays a role and can offer some tradeoffs with the off-site water usage. When selecting data centers by EWIF, Texas drops out of the top three, possibly due to the availability of wind and solar energy. Considering both WUE and EWIF, it becomes clear that optimizing water usage isn't as simple as doing all computations in a cold climate.
+
+Going down a level, we can consider the performance (operations per second) required to train and run sophisticated models. This power comes from GPUs. While they are performant, tasks typically do not utilize them to their fullest potential. Despite techniques to address this underutilization, across global data centers, average GPU use ranges from 30-50%[^5]. Another study finds an even lower rate (18%) in one production environment[^6]. From this insight, researchers deduce that a considerable amount of energy goes toward these processors sitting in an idle or stalled state[^5].
+
+This underutilization draws attention to a more systemic issue: In modern processors, data must travel between a memory unit and a compute unit. Since the compute units must wait for data to arrive, a bottleneck arises based on how fast the data can be accessed (the von Neumann bottleneck)[^7]. While alternative architectures are being researched, we can also address this bottleneck in how we manage resources at the software level. One major component of this challenge is memory management. By optimizing memory usage, we can reduce stalls, increase throughput, and ultimately alleviate some energy demand.
+
+### Memory Organization
+To better understand how memory management factors into performance, let's start by taking a look at how a computer organizes data. We can divide memory into two different categories: primary (internal, volatile) and secondary (external, non-volatile). The diagram below shows the different tiers of available memory, ordered by size and access time. Registers, caches, and main memory (dynamic random-access memory) fall under the primary category. They store programs and data for the processes your computer is currently running (like this webpage!) and are directly accessible to the processor. On the other hand, things like HDDs (hard drive disks) and SSDs (solid-state drives) constitute secondary memory. They are used for long-term storage, retain data even when unpowered, and are indirectly accessible to the processor through input/output operations. As you can see in the diagram, access time for secondary storage jumps to the scale of milliseconds, whereas primary storage can be accessed in nanoseconds. Importantly, it also indicates the direction of cost per bit, a monetary measurement (primary storage is more complex to physically produce). Taking these attributes into consideration, we can see that efficient design necessitates a balance between the two categories.
+
+![Memory Hierarchy Diagram](/assets/images/computing-resources/Memory-Hierarchy-Design.png "Memory Hierarchy Diagram")[^8]
+
+## Mitigating Resource Consumption
+So far, we've identified a couple key factors contributing to water and energy usage in AI, namely the at-scale infrastructure supporting data centers and the underutilization of compute units in current hardware. Researchers are handling these inefficiencies at multiple levels of the technology stack. Let's look at some examples at each level.
+
+### Hardware Advancements
+Any kind of hardware used to speed up operations for AI could be classified as an AI accelerator. The most widely used accelerator is the GPUs. GPUs increase performance through parallel processing, enabled by having multiple logic cores. While performant, they were not designed specifically for AI datasets and thus leave room form improvement, as previously identified. At a high level, newer accelerators such as NPUs and TPUs (Neural/Tensor Processing Units), allow for more efficient computing by prioritizing access to primary, on-chip memory and show definite improvements compared to GPUs[^5].
+
+### Software-Level Optimizations
+Although hardware capabilities continue to increase, it remains important to write software that not only fully utilizes the hardware's capabilities but also doesn't waste those resources. There are a variety of ways in which programs handle memory inefficiently. One method called mixed-precision training cuts down on memory usage by reducing the precision of values in certain operations. This change might look like using 16-bit values instead of 32-bit ones -- a 50% reduction in size! This simple adjustment, when applied strategically, dramatically increase performance with only minimal losses to accuracy[^9]. Aside from reducing wastefulness, we can also more fully utilize compute units that would otherwise be idle through a method called gradient checkpointing. When a program plans to reuse previously computed data, it can save time storing only a subset of data points, which are more quickly accessible and enable the processors to redo the calculation rather than wait for the data to arrive [^5].
+
+### Operational Improvements
+As previously discussed, some data centers consume resources more efficiently than others. While future constructions may be designed to consume less resources, current builds can be used in ways that optimize their water-consumption rates. Things to consider here include how the environment's temperature changes throughout the day or when renewable energy is most plentiful. Strategic scheduling can account for conditions like these and run when cooling and energy footprints are lower. Current usage patterns leave much room for improvement[^5].
+
+## Conclusion
+In this post, we identified the von Neumann bottleneck, a current limitation in conventional computer architecture, as well as inefficiencies in the way we use our computing resources. With such a wide array of optimizations, it's clear that significant improvements can be made to our resource consumption. The various levels at which contributions can be made draw from fields within computer science and beyond. From the physical reactions that form the basis of computing to the governmental policies that regulate its deployment, efficient computing is a truly interdisciplinary problem that will require input from all parts of society.
+
+## Opportunities for Future Work
+Although this post doesn't look deeply into any technical details, it provides a good foundation to start doing so and could be the start of a series on efficient computing. Having identified some broad areas with potential for improvements, it could be helpful to more closely examine a couple methods that were described and see how they work.
+
+# References and Links
+
+[^1]: Li, Peng et al. “Making AI Less 'Thirsty'.” Communications of the ACM 68 (2023): 54 - 61.  
+[^2]: Philadelphia Water Department. Resource Recovery & Energy Production. Philadelphia Water Department, https://water.phila.gov/sustainability/energy/. 
+[^3]: Shehabi, A., Smith, S.J., Horner, N., Azevedo, I., Brown, R., Koomey, J., Masanet, E., Sartor, D., Herrlin, M., Lintner, W. 2016. United States Data Center Energy Usage Report. Lawrence Berkeley National Laboratory, Berkeley, California. LBNL-1005775. 
+[^4]: Philadelphia County, Pennsylvania Electricity Rates & Statistics.” FindEnergy, FindEnergy LLC, 31 July 2025, https://findenergy.com/pa/philadelphia-county-electricity/. 
+[^5]: Makin, Yashasvi, and Rahul Maliakkal. “Sustainable AI Training via Hardware–Software Co-Design on NVIDIA, AMD, and Emerging GPU Architectures.” *arXiv*, preprint arXiv:2508.13163, 28 July 2025, https://arxiv.org/abs/2508.13163.  
+[^6]: Weng, Qizhen, et al. “MLaaS in the Wild: Workload Analysis and Scheduling in Large-Scale Heterogeneous GPU Clusters.” NSDI ’22: Proceedings of the 19th USENIX Symposium on Networked Systems Design and Implementation, 4–6 Apr. 2022, Renton, WA, USENIX Association, https://www.usenix.org/system/files/nsdi22-paper-weng.pdf. 
+[^7]: Hess, Peter. “Why a Decades Old Architecture Decision Is Impeding the Power of AI Computing.” IBM Research Blog, 10 Feb. 2025, research.ibm.com/blog/why-von-neumann-architecture-is-impeding-the-power-of-ai-computing.  
+[^8]: Zintler, Alexander. (2022). Investigating the influence of microstructure and grain boundaries on electric properties in thin film oxide RRAM devices – A component specific approach. 10.26083/tuprints-00021657.   
+[^9]: Micikevicius, P., Narang, S., Alben, J., Diamos, G., Elsen, E., Garcia, D., Ginsburg, B., Houston, M., Kuchaiev, O., Venkatesh, G., & Wu, H. (2018, February 15). Mixed precision training. arXiv.org. https://arxiv.org/abs/1710.03740   import { defineCollection, z } from 'astro:content';
+
+export const collections = {
+  blog: defineCollection({
+    type: 'content',
+    schema: z.object({
+      title: z.string(),
+      date: z.date(),
+      img: z.string().optional(),
+      excerpt: z.string().optional(),
+    }),
+  }),
+};
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+import React from "react";
+import { motion } from "framer-motion";
+import { HashLink } from 'react-router-hash-link';
+
+interface HeroProps {
+  name?: string;
+  title: string;
+  subtitle?: string;
+  ctaText?: string;
+  imageSrc: string;
+  imageAlt?: string;
+}
+
+const Hero: React.FC<HeroProps> = ({
+  name,
+  title,
+  subtitle,
+  ctaText,
+  imageSrc,
+  imageAlt = "Hero Background Picture",
+}) => {
+  return (
+    <section className="relative h-screen flex flex-col items-center justify-center text-center bg-gradient-to-b from-gray-200 to-gray-100 text-white pt-14">
+      <img
+        src={imageSrc}
+        alt={imageAlt}
+        className="absolute inset-0 w-full h-[100vh] object-cover object-center brightness-50"
+      />
+
+      <motion.div
+        className="relative z-10 max-w-3xl px-6"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <h1 className="text-5xl sm:text-6xl font-bold mb-4">
+          Hello, World! {name && <span className="pb-1"><br/>I'm {name}</span>}
+        </h1>
+
+        <h2 className="text-2xl sm:text-3xl font-medium mb-4">
+          {title}
+        </h2>
+
+        {subtitle && (
+          <p className="text-lg mb-6">{subtitle}</p>
+        )}
+
+        {ctaText && (
+          <a href="/#projects">
+            <button className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl">
+              {ctaText}
+            </button>
+          </a>
+
+        )}
+      </motion.div>
+    </section>
+  );
+};
+
+export default Hero;
+export default function Navbar() {
+  return (
+    <nav className="fixed z-[1000] w-full h-14 bg-gray-600 shadow-sm">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+        <a href="/" className="text-2xl font-bold text-blue-400">
+          Home
+        </a>
+
+        <div className="flex space-x-6 text-gray-200">
+          <a href="/#about-me" className="hover:text-blue-400">
+            About
+          </a>
+          <a href="/blog" className="hover:text-blue-400">
+            Blog
+          </a>
+        </div>
+      </div>
+    </nav>
+  );
+}
+// src/components/Card.tsx
+
+interface CardProps {
+  title: string;
+  excerpt: string;
+  path: string;
+  slug: string;
+  img?: string;
+}
+
+export default function Card({ title, excerpt, path, slug, img }: CardProps) {
+  return (
+    <a
+      href={`/${path}/${slug}`}
+      className="block bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md hover:shadow-lg transition mb-4"
+    >
+      ...
+    </a>
+  );
+}
+import { ReactNode } from "react";
+
+interface ContainerProps {
+    id: string;
+    title?: string;
+    body?: string;
+    color:  string;
+    children?: ReactNode
+}
+
+export default function Container({ id, title, body, color, children}: ContainerProps) {
+    return (
+        <section id={id} className = "flex flex-col items-center justify-center text-center py-2">
+            <div className={`w-[95%] block ${color} p-6 rounded-lg shadow-md`}>
+            {title && <h2 className="text-4xl font-bold mb-2">{title}</h2>}
+            {body && <p className="text-gray-700">{body}</p>}
+            {children && <div className="mt-2">{children}</div>}
+            </div>
+        </section>
+    );
+}
+
+
+import { useEffect, useRef } from "react";
+import * as d3 from "d3";
+
+export default function GradientCheckpointChart() {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    root.innerHTML = "";
+
+    const times = [7.10, 6.24, 6.11, 6.09, 6.10, 6.07, 6.05, 6.03];
+    const memory = [1525.88, 305.18, 152.59, 30.52, 15.26, 3.05, 1.53, 0.31];
+    const checkpoints = [10, 50, 100, 500, 1000, 5000, 10000, 50000];
+
+    const data = memory.map((mem, i) => ({
+      memory: mem,
+      time: times[i],
+      checkpoints: checkpoints[i]
+    }));
+
+    const width = 1000;
+    const height = 600;
+    const margin = { top: 50, right: 70, bottom: 50, left: 70 };
+
+    const svg = d3
+      .select(root)
+      .append("svg")
+      .attr("width", width)
+      .attr("height", height);
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", margin.top / 3)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "20px")
+      .text("Gradient Checkpointing: Time–Memory Tradeoff");
+
+    const xScale = d3.scaleLog()
+      .domain([d3.min(memory)!, d3.max(memory)!])
+      .range([margin.left, width - margin.right]);
+
+    const yScale = d3.scaleLinear()
+      .domain([d3.min(times)! - 0.2, d3.max(times)! + 0.2])
+      .range([height - margin.bottom, margin.top]);
+
+    svg.append("g")
+      .attr("transform", `translate(0, ${height - margin.bottom})`)
+      .call(d3.axisBottom(xScale).ticks(10, "~s"));
+
+    svg.append("g")
+      .attr("transform", `translate(${margin.left}, 0)`)
+      .call(d3.axisLeft(yScale));
+
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height - 10)
+      .attr("text-anchor", "middle")
+      .text("Memory Usage (MB, log scale)");
+
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -height / 2)
+      .attr("y", 20)
+      .attr("text-anchor", "middle")
+      .text("Execution Time (s)");
+
+    const line = d3.line<any>()
+      .x((d) => xScale(d.memory))
+      .y((d) => yScale(d.time));
+
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 1.5)
+      .attr("d", line);
+
+    const circles = svg.selectAll("circle")
+      .data(data)
+      .enter()
+      .append("circle")
+      .attr("cx", (d) => xScale(d.memory))
+      .attr("cy", (d) => yScale(d.time))
+      .attr("r", 6)
+      .attr("fill", "orange");
+
+    svg.selectAll("text.k-label")
+      .data(data)
+      .enter()
+      .append("text")
+      .attr("class", "k-label")
+      .attr("x", (d) => xScale(d.memory))
+      .attr("y", (d) => yScale(d.time) - 10)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "11px")
+      .text((d) => `K=${d.checkpoints}`);
+
+    const xMarker = svg.append("line")
+      .attr("stroke", "gray")
+      .attr("stroke-dasharray", "4")
+      .style("opacity", 0);
+
+    const yMarker = svg.append("line")
+      .attr("stroke", "gray")
+      .attr("stroke-dasharray", "4")
+      .style("opacity", 0);
+
+    const xLabel = svg.append("text")
+      .attr("text-anchor", "middle")
+      .style("opacity", 0);
+
+    const yLabel = svg.append("text")
+      .attr("text-anchor", "end")
+      .style("opacity", 0);
+
+    circles
+      .on("mouseover", function (event, d: any) {
+        d3.select(this).transition().attr("r", 10).attr("fill", "red");
+
+        xMarker
+          .attr("x1", xScale(d.memory))
+          .attr("x2", xScale(d.memory))
+          .attr("y1", yScale(d.time))
+          .attr("y2", height - margin.bottom)
+          .style("opacity", 1);
+
+        yMarker
+          .attr("x1", margin.left)
+          .attr("x2", xScale(d.memory))
+          .attr("y1", yScale(d.time))
+          .attr("y2", yScale(d.time))
+          .style("opacity", 1);
+
+        xLabel
+          .attr("x", xScale(d.memory))
+          .attr("y", height - margin.bottom + 20)
+          .style("opacity", 1)
+          .text(`${d.memory.toFixed(2)} MB`);
+
+        yLabel
+          .attr("x", margin.left - 5)
+          .attr("y", yScale(d.time))
+          .style("opacity", 1)
+          .text(`${d.time.toFixed(2)} s`);
+      })
+      .on("mouseout", function () {
+        d3.select(this).transition().attr("r", 6).attr("fill", "orange");
+        xMarker.style("opacity", 0);
+        yMarker.style("opacity", 0);
+        xLabel.style("opacity", 0);
+        yLabel.style("opacity", 0);
+      });
+
+  }, []);
+
+  return (
+    <div>
+      <div ref={containerRef} />
+      <div id="info-box" className="mt-4 text-sm text-gray-700">
+        Hover over a point to see details.
+      </div>
+    </div>
+  );
+}
+// src/components/Button.tsx
+interface ButtonProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+  className?: string;
+}
+
+export default function Button({ children, onClick, className = "" }: ButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={`bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded transition ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+---
+import Navbar from '../components/Navbar';
+import '../styles/global.css';
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <slot name="head" />
+  </head>
+  <body class="bg-neutral-950 text-neutral-100">
+    <Navbar client:idle />
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero';
+---
+
+<BaseLayout>
+  <Hero client:load />
+</BaseLayout>
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+
+const posts = await getCollection('blog');
+---
+
+<BaseLayout>
+  <section class="max-w-3xl mx-auto p-6">
+    <h1 class="text-3xl font-bold mb-6">Blog</h1>
+    <ul class="space-y-4">
+      {posts.map(post => (
+        <li>
+          <a href={`/blog/${post.slug}`} class="text-xl underline">
+            {post.data.title}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</BaseLayout>
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, getEntryBySlug } from 'astro:content';
+
+export async function getStaticPaths() {
+  const blogEntries = await getCollection('blog');
+  return blogEntries.map(entry => ({
+    params: { slug: entry.slug },
+  }));
+}
+
+const post = await getEntryBySlug('blog', Astro.params.slug);
+if (!post) throw new Error('Post not found');
+
+const { Content } = post.render();
+---
+
+<BaseLayout>
+    <Fragment slot="head">
+        <title>{post.data.title}</title>
+        <meta name="description" content={post.data.excerpt} />
+  </Fragment>
+
+    <article class="prose prose-invert max-w-3xl mx-auto p-6">
+        <h1>{post.data.title}</h1>
+        <Content />
+    </article>
+</BaseLayout>
