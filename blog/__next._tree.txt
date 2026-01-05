@@ -1,0 +1,4 @@
+:HL["/_next/static/chunks/36e7714f67a0b71e.css","style"]
+:HL["/assets/images/computing-resources/before.png","image"]
+:HL["/assets/images/computing-resources/liquid-cooling.jpg","image"]
+0:{"buildId":"M5HLQX9mmyOjAI6xECSU9","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"blog","paramType":null,"paramKey":"blog","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"staleTime":300}
