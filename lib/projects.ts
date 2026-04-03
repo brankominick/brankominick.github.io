@@ -55,6 +55,7 @@ export const projects: Project[] = [
     fullDescription:
       "A React Native application addressing a real pain point for competitive dog sport handlers — the lack of structured tooling for tracking trial performance, training progress, and handler notes over time. Designed with input from active competitors. Currently in development; the app and company site will be linked when ready.",
     tech: ["React Native", "TypeScript"],
+    liveUrl: "https://canineperformancetracker.com/",
     img: "/assets/images/projects/canine-tracking.png",
     status: "coming-soon",
   },

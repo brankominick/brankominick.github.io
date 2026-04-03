@@ -51,7 +51,7 @@ export default function Home() {
             If you see anything that resonates with you, whether you’re building tools, exploring research, or interested in similar creative hobbies like photography and cooking, I’d love to connect!
           </p>
           <p className="text-lg text-gray-700 mb-4">
-            You can reach me directly at <span>br<span className="hidden">@</span><span>ia<span className="hidden">.example</span>n</span><span></span><span className="hidden">@</span>(at)brian<span className="hidden">.com</span>.kominick<span>(dot)</span>com </span>
+            You can reach me directly at <span>br<span className="hidden">@</span><span>ia<span className="hidden">.example</span>n</span><span></span><span className="hidden">@</span>(at)brian<span className="hidden">.com</span>kominick<span>(dot)</span>com </span>
             or find me on{" "}
             <a href="https://www.linkedin.com/in/briankominick" className="text-blue-600 hover:underline">
               LinkedIn
